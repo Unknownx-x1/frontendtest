@@ -24,6 +24,8 @@ import {
   Zap,
 } from 'lucide-react'
 
+import { sendChatMessage } from './lib/api'
+
 const bodyParts = [
   { id: 'shoulder', label: 'Shoulder', x: 49, y: 28 },
   { id: 'back', label: 'Back', x: 51, y: 42 },
@@ -495,20 +497,39 @@ function NutritionEngine() {
 function CoachTerminal() {
   const [mode, setMode] = useState('coach')
   const [text, setText] = useState('My knee hurts after sprint drills. Can I train tomorrow?')
+  const [conversationId, setConversationId] = useState(null)
   const [messages, setMessages] = useState([
-    { from: 'ai', text: "Hi there! I'm your AthleteEdge Assistant. How can I help you improve your game today?" },
+    { from: 'ai', mode: 'coach', text: "Hi there! I'm your AthleteEdge Assistant. How can I help you improve your game today?" },
   ])
   const [typing, setTyping] = useState(false)
 
   async function send() {
-    if (!text.trim()) return
-    const current = text
-    setMessages((items) => [...items, { from: 'athlete', text: current }])
+    if (!text.trim() || typing) return
+    const current = text.trim()
+    const activeMode = mode
+    const chatHistory = messages.slice(-10).map((message) => ({
+      role: message.from === 'ai' ? 'assistant' : 'user',
+      content: message.text,
+    }))
+    setMessages((items) => [...items, { from: 'athlete', mode: activeMode, text: current }])
     setText('')
     setTyping(true)
-    const data = await postAI('/api/chat', { mode, message: current })
-    setMessages((items) => [...items, { from: 'ai', text: data.reply }])
-    setTyping(false)
+    try {
+      const data = await sendChatMessage({ mode: activeMode, message: current, conversationId, history: chatHistory })
+      setConversationId(data.conversation_id)
+      setMessages((items) => [...items, { from: 'ai', mode: data.mode, text: data.reply }])
+    } catch {
+      setMessages((items) => [
+        ...items,
+        {
+          from: 'ai',
+          mode: activeMode,
+          text: 'Connection check failed. Start the AthleteEdge backend, then transmit again.',
+        },
+      ])
+    } finally {
+      setTyping(false)
+    }
   }
 
   return (
@@ -532,7 +553,7 @@ function CoachTerminal() {
         <div className="message-feed coach-feed">
           {messages.map((message, index) => (
             <motion.div key={`${message.from}-${index}`} className={`signal ${message.from}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
-              <span>{message.from === 'ai' ? mode.toUpperCase() : 'ATHLETE'}</span>
+              <span>{message.from === 'ai' ? (message.mode || mode).toUpperCase() : 'ATHLETE'}</span>
               <p>{message.text}</p>
             </motion.div>
           ))}
